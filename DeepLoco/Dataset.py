@@ -6,6 +6,46 @@ import glob
 import os
 import cv2
 
+from utils import match_image_range
+
+class LocalizationDataset(Dataset):
+
+    def __init__(self, dataset_path, shape=(64, 64), prior_dataset_path=None):
+        super(LocalizationDataset, self).__init__()
+
+        self.shape = shape
+
+
+        data = sio.loadmat(dataset_path)
+        noisy_frames = data['IQs']  # Shape: (128, 128, 800)
+        clean_frames = data['GTs']  # Shape: (128, 128, 800)
+        noise_mat_frames = data['NoiseMats']
+
+        self.noisy_frames = np.transpose(noisy_frames, (2, 0, 1))
+        self.clean_frames = np.transpose(clean_frames, (2, 0, 1))
+        self.noise_mat_frames = np.transpose(noise_mat_frames, (2, 0, 1))
+
+        if prior_dataset_path is not None:
+            deep_loco_sim_images = np.load(prior_dataset_path)
+            self.noisy_frames = match_image_range(self.noisy_frames, deep_loco_sim_images)
+            self.clean_frames = match_image_range(self.clean_frames, deep_loco_sim_images)
+
+    def __len__(self):
+        return len(self.noisy_frames)
+
+    def __getitem__(self, idx):
+        noisy_resized = cv2.resize(self.noisy_frames[idx], self.shape, interpolation=cv2.INTER_AREA)
+        clean_resized = cv2.resize(self.clean_frames[idx], self.shape, interpolation=cv2.INTER_AREA)
+        noise_resized = cv2.resize(self.noise_mat_frames[idx], self.shape, interpolation=cv2.INTER_AREA)
+
+        return (
+            torch.tensor(noisy_resized, dtype=torch.float32),  # Add channel dim (1, 64, 64)
+            torch.tensor(clean_resized, dtype=torch.float32),  # Add channel dim (1, 64, 64)
+            torch.tensor(noise_resized, dtype=torch.float32)
+        )
+
+
+
 class ULM_Dataset(Dataset):
     """ PyTorch dataset for ULM denoising and feature extraction."""
     def __init__(self, dataset_path, shape=(64, 64), normalize=True):
